@@ -1,5 +1,4 @@
-
-import { useState, useEffect, useContext } from 'react';
+import { useState, useContext } from 'react';
 import { AuthContext } from '../contexts/AuthContext';
 import { UploadContext } from '../contexts/UploadContext';
 import ProgressBar from '../components/ProgressBar';
@@ -10,7 +9,7 @@ const Dashboard = () => {
   
   const [selectedFile, setSelectedFile] = useState(null);
   const [documentUrl, setDocumentUrl] = useState('');
-  const [uploadType, setUploadType] = useState('file'); // 'file' or 'url'
+  const [uploadType, setUploadType] = useState('file'); // 'file', 'url', or 'json'
   
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
@@ -21,10 +20,9 @@ const Dashboard = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (uploadType === 'file' && selectedFile) {
+    if ((uploadType === 'file' || uploadType === 'json') && selectedFile) {
       await uploadFile(selectedFile);
       setSelectedFile(null);
-      // Reset file input
       e.target.reset();
     } else if (uploadType === 'url' && documentUrl) {
       await uploadFile(null, documentUrl);
@@ -40,6 +38,11 @@ const Dashboard = () => {
     }
   };
 
+  // Determine the accept attribute dynamically
+  const acceptTypes = uploadType === 'json'
+    ? '.json'
+    : '.pdf,.docx,.doc';
+
   return (
     <div className="min-h-screen bg-gray-100">
       <nav className="bg-white shadow-sm">
@@ -49,7 +52,7 @@ const Dashboard = () => {
               <h1 className="text-xl font-bold">Document Admin</h1>
             </div>
             <div className="flex items-center">
-              {user && <span className="mr-4">Welcome, {user.username}</span>}
+              {user && <span className="mr-4">Welcome Abbas Khan {user.username}</span>}
               <button
                 onClick={handleLogout}
                 className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded"
@@ -87,22 +90,21 @@ const Dashboard = () => {
               >
                 Upload from URL
               </button>
+              <button
+                onClick={() => setUploadType('json')}
+                className={`px-4 py-2 rounded ${
+                  uploadType === 'json'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-gray-700'
+                }`}
+              >
+                Upload JSON
+              </button>
             </div>
           </div>
 
           <form onSubmit={handleSubmit}>
-            {uploadType === 'file' ? (
-              <div className="mb-4">
-                <label className="block text-gray-700 mb-2">Select File (PDF, DOCX)</label>
-                <input
-                  type="file"
-                  accept=".pdf,.docx,.doc"
-                  onChange={handleFileChange}
-                  className="w-full p-2 border border-gray-300 rounded"
-                  required
-                />
-              </div>
-            ) : (
+            {uploadType === 'url' ? (
               <div className="mb-4">
                 <label className="block text-gray-700 mb-2">Document URL</label>
                 <input
@@ -114,15 +116,28 @@ const Dashboard = () => {
                   required
                 />
               </div>
+            ) : (
+              <div className="mb-4">
+                <label className="block text-gray-700 mb-2">
+                  Select {uploadType === 'json' ? 'JSON File' : 'File (PDF, DOCX)'}
+                </label>
+                <input
+                  type="file"
+                  accept={acceptTypes}
+                  onChange={handleFileChange}
+                  className="w-full p-2 border border-gray-300 rounded"
+                  required
+                />
+              </div>
             )}
 
             <button
               type="submit"
               className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
               disabled={
-                (uploadType === 'file' && !selectedFile) || 
+                ((uploadType === 'file' || uploadType === 'json') && !selectedFile) || 
                 (uploadType === 'url' && !documentUrl) ||
-                uploadProgress > 0 && uploadProgress < 100
+                (uploadProgress > 0 && uploadProgress < 100)
               }
             >
               {uploadProgress > 0 && uploadProgress < 100
