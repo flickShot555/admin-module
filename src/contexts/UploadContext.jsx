@@ -1,206 +1,135 @@
 
-import React, { createContext, useState, useContext } from 'react';
+import { createContext, useState } from 'react';
+import { toast } from '@/components/ui/sonner';
 
-const UploadContext = createContext(null);
+export const UploadContext = createContext(null);
 
 export const UploadProvider = ({ children }) => {
-  const [documents, setDocuments] = useState([]);
-  const [uploadProgress, setUploadProgress] = useState({});
-  const [isUploading, setIsUploading] = useState(false);
-  const [error, setError] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadedDocuments, setUploadedDocuments] = useState([]);
 
-  const addDocument = (doc) => {
-    setDocuments(prev => [...prev, doc]);
-  };
-
-  const updateDocumentStatus = (docId, status) => {
-    setDocuments(prev => 
-      prev.map(doc => 
-        doc.id === docId ? { ...doc, status } : doc
-      )
-    );
-  };
-
-  const updateUploadProgress = (docId, progress) => {
-    setUploadProgress(prev => ({
-      ...prev,
-      [docId]: progress
-    }));
-  };
-
-  const uploadDocument = async (file) => {
-    setError(null);
-    setIsUploading(true);
-    
-    // Generate a temporary ID for tracking
-    const docId = Date.now().toString();
-    
-    const newDoc = {
-      id: docId,
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      timestamp: new Date().toISOString(),
-      status: 'uploading',
-    };
-    
-    addDocument(newDoc);
-    updateUploadProgress(docId, 0);
-    
-    const formData = new FormData();
-    formData.append('file', file);
-    
+  const uploadFile = async (file, url = null) => {
     try {
-      // Frontend logic ends and backend call begins
+      setUploadProgress(1); // Start progress
+      
+      const formData = new FormData();
+      
+      if (file) {
+        formData.append('document', file);
+      } else if (url) {
+        formData.append('documentUrl', url);
+      } else {
+        throw new Error('Either file or URL must be provided');
+      }
+
       const xhr = new XMLHttpRequest();
       
-      xhr.upload.addEventListener('progress', (event) => {
+      // Track upload progress
+      xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
-          const progress = Math.round((event.loaded * 100) / event.total);
-          updateUploadProgress(docId, progress);
-        }
-      });
-      
-      xhr.onload = async () => {
-        if (xhr.status === 200) {
-          const result = JSON.parse(xhr.responseText);
-          updateDocumentStatus(docId, 'processing');
-          
-          // Poll for document processing status
-          pollProcessingStatus(docId, result.jobId);
-        } else {
-          updateDocumentStatus(docId, 'failed');
-          setError(`Upload failed: ${xhr.statusText}`);
+          const percentComplete = Math.round((event.loaded / event.total) * 100);
+          setUploadProgress(percentComplete);
         }
       };
       
-      xhr.onerror = () => {
-        updateDocumentStatus(docId, 'failed');
-        setError('Network error occurred during upload');
-      };
-      
-      xhr.open('POST', `${process.env.REACT_APP_API_BASE_URL}/api/documents/upload`, true);
-      xhr.withCredentials = true; // Include cookies in the request
-      xhr.send(formData);
-    } catch (err) {
-      updateDocumentStatus(docId, 'failed');
-      setError(err.message);
-    } finally {
-      setIsUploading(false);
-    }
-    
-    return docId;
-  };
-  
-  const pollProcessingStatus = async (docId, jobId) => {
-    const checkStatus = async () => {
-      try {
-        // Frontend logic ends and backend call begins
-        const response = await fetch(
-          `${process.env.REACT_APP_API_BASE_URL}/api/documents/status/${jobId}`,
-          {
-            credentials: 'include', // Include cookies in the request
+      // Create a promise to handle the XHR response
+      const uploadPromise = new Promise((resolve, reject) => {
+        xhr.onload = function() {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            const response = JSON.parse(xhr.responseText);
+            resolve(response);
+          } else {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
           }
-        );
+        };
         
-        if (!response.ok) {
-          throw new Error('Failed to fetch document status');
-        }
-        
-        const result = await response.json();
-        
-        if (result.status === 'completed') {
-          updateDocumentStatus(docId, 'completed');
-          return true;
-        } else if (result.status === 'failed') {
-          updateDocumentStatus(docId, 'failed');
-          return true;
-        } else {
-          updateDocumentStatus(docId, result.status);
-          return false;
-        }
-      } catch (err) {
-        console.error('Status polling error:', err);
-        updateDocumentStatus(docId, 'unknown');
-        return true;
-      }
-    };
-    
-    const poll = async () => {
-      const isDone = await checkStatus();
-      if (!isDone) {
-        setTimeout(poll, 5000); // Check every 5 seconds
-      }
-    };
-    
-    poll();
+        xhr.onerror = function() {
+          reject(new Error('Upload failed due to network error'));
+        };
+      });
+
+      // Open and send the request
+      xhr.open('POST', `${process.env.REACT_APP_API_BASE_URL}/api/documents/upload`);
+      xhr.withCredentials = true; // Include cookies
+      xhr.send(formData);
+      
+      // Wait for response
+      const response = await uploadPromise;
+      
+      // Add new document to list
+      const newDocument = {
+        id: response.documentId,
+        fileName: file ? file.name : url,
+        uploadDate: new Date().toISOString(),
+        status: 'processing'
+      };
+      
+      setUploadedDocuments(prev => [newDocument, ...prev]);
+      setUploadProgress(100);
+      
+      // Reset progress after a delay
+      setTimeout(() => {
+        setUploadProgress(0);
+      }, 2000);
+      
+      toast.success('Document uploaded successfully');
+      
+      // Poll for vectorization status
+      pollVectorizationStatus(response.documentId);
+      
+      return response;
+    } catch (error) {
+      setUploadProgress(0);
+      toast.error(`Upload failed: ${error.message}`);
+      throw error;
+    }
   };
 
-  const uploadUrl = async (url) => {
-    setError(null);
-    setIsUploading(true);
-    
-    const docId = Date.now().toString();
-    
-    const newDoc = {
-      id: docId,
-      name: url,
-      type: 'url',
-      timestamp: new Date().toISOString(),
-      status: 'uploading',
-    };
-    
-    addDocument(newDoc);
-    
+  // Poll for document processing status
+  const pollVectorizationStatus = async (documentId) => {
     try {
-      // Frontend logic ends and backend call begins
-      const response = await fetch(
-        `${process.env.REACT_APP_API_BASE_URL}/api/documents/upload-url`, 
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include', // Include cookies in the request
-          body: JSON.stringify({ url }),
+      const checkStatus = async () => {
+        const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/api/documents/${documentId}/status`, {
+          credentials: 'include',
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to check document status');
         }
-      );
+        
+        const data = await response.json();
+        
+        // Update document status
+        setUploadedDocuments(prev => 
+          prev.map(doc => 
+            doc.id === documentId 
+              ? { ...doc, status: data.status } 
+              : doc
+          )
+        );
+        
+        // Continue polling if document is still processing
+        if (data.status === 'processing') {
+          setTimeout(checkStatus, 5000); // Check every 5 seconds
+        } else if (data.status === 'vectorized') {
+          toast.success('Document vectorization complete!');
+        } else if (data.status === 'failed') {
+          toast.error('Document processing failed. Please try again.');
+        }
+      };
       
-      if (!response.ok) {
-        throw new Error('URL upload failed');
-      }
-      
-      const result = await response.json();
-      updateDocumentStatus(docId, 'processing');
-      
-      // Poll for document processing status
-      pollProcessingStatus(docId, result.jobId);
-    } catch (err) {
-      updateDocumentStatus(docId, 'failed');
-      setError(err.message);
-    } finally {
-      setIsUploading(false);
+      // Start polling
+      setTimeout(checkStatus, 3000); // First check after 3 seconds
+    } catch (error) {
+      console.error('Error polling document status:', error);
     }
-    
-    return docId;
   };
 
   const value = {
-    documents,
+    uploadFile,
     uploadProgress,
-    isUploading,
-    error,
-    uploadDocument,
-    uploadUrl,
+    uploadedDocuments,
   };
 
   return <UploadContext.Provider value={value}>{children}</UploadContext.Provider>;
-};
-
-export const useUpload = () => {
-  const context = useContext(UploadContext);
-  if (context === null) {
-    throw new Error('useUpload must be used within an UploadProvider');
-  }
-  return context;
 };

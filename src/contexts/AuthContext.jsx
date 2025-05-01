@@ -1,99 +1,90 @@
 
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import { createContext, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { toast } from '@/components/ui/sonner';
 
-const AuthContext = createContext(null);
+export const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const navigate = useNavigate();
 
-  // Check if user is logged in on mount
+  // Check if user is already logged in
   useEffect(() => {
-    const checkAuthStatus = async () => {
+    const checkAuth = async () => {
       try {
-        const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/auth/verify`, {
+        // Call PHP endpoint to validate session/token
+        const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/auth/validate`, {
           method: 'GET',
           credentials: 'include', // Include cookies in the request
         });
 
         if (response.ok) {
-          const userData = await response.json();
-          setUser(userData);
+          const data = await response.json();
+          setUser(data.user);
         }
-      } catch (err) {
-        console.error('Auth verification error:', err);
+      } catch (error) {
+        console.error('Auth validation error:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    checkAuthStatus();
+    checkAuth();
   }, []);
 
   // Login function
   const login = async (username, password) => {
-    setError(null);
-    setLoading(true);
-    
     try {
-      // Frontend logic ends and backend call begins
       const response = await fetch(`${process.env.REACT_APP_API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        credentials: 'include', // Include cookies in the request
+        credentials: 'include', // Store cookies
         body: JSON.stringify({ username, password }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Login failed');
+        const error = await response.json();
+        throw new Error(error.message || 'Invalid credentials');
       }
 
-      const userData = await response.json();
-      setUser(userData);
-      return userData;
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setLoading(false);
+      const data = await response.json();
+      setUser(data.user);
+      toast.success('Login successful');
+      return data;
+    } catch (error) {
+      toast.error('Login failed: ' + error.message);
+      throw error;
     }
   };
 
   // Logout function
   const logout = async () => {
     try {
-      // Frontend logic ends and backend call begins
       await fetch(`${process.env.REACT_APP_API_BASE_URL}/auth/logout`, {
         method: 'POST',
-        credentials: 'include', // Include cookies in the request
+        credentials: 'include',
       });
-    } catch (err) {
-      console.error('Logout error:', err);
-    } finally {
+      
       setUser(null);
+      toast.success('Logged out successfully');
+      navigate('/login');
+    } catch (error) {
+      toast.error('Logout failed');
+      console.error('Logout error:', error);
+      throw error;
     }
   };
 
   const value = {
     user,
-    loading,
-    error,
     login,
     logout,
-    isAuthenticated: !!user,
+    loading,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-};
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === null) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
 };
