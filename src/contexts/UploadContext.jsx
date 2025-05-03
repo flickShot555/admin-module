@@ -56,6 +56,12 @@ export const UploadProvider = ({ children }) => {
       // Wait for response
       const response = await uploadPromise;
       
+      setUploadedDocuments(prev => [
+        { id: response.documentId, fileName: response.fileName, status: "processing", 
+          uploadDate: new Date().toISOString() },
+        ...prev
+      ]);
+
       // Add new document to list
       const newDocument = {
         id: response.documentId,
@@ -63,6 +69,25 @@ export const UploadProvider = ({ children }) => {
         uploadDate: new Date().toISOString(),
         status: 'processing'
       };
+
+        // trigger vectorization
+      try {
+        await fetch("http://localhost:5000/vectorize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filePath: response.filePath })
+        });
+        setUploadedDocuments(prev =>
+          prev.map(doc =>
+            doc.id === response.documentId
+              ? { ...doc, status: "vectorized" }
+              : doc
+          )
+        );
+        toast.success("Document vectorized!");
+      } catch (e) {
+        toast.error("Vectorization failed: " + e.message);
+      }
       
       setUploadedDocuments(prev => [newDocument, ...prev]);
       setUploadProgress(100);
