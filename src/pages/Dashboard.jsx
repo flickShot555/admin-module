@@ -124,7 +124,7 @@ const Dashboard = () => {
                 <input
                   type="file"
                   accept={acceptTypes}
-                  onChange={handleFileChange}
+                  onChange={handleFileChange} 
                   className="w-full p-2 border border-gray-300 rounded"
                   required
                 />
